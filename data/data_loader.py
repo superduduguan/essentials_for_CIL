@@ -15,7 +15,7 @@ def unpickle(file):
     return dict
 
 
-class ExemplarDataset(Dataset):
+class ExemplarDataset(Dataset): #SAT: Memory
 
     def __init__(self, data, transform=None):
         labels = []
@@ -40,7 +40,7 @@ class ExemplarDataset(Dataset):
         return sample, label
 
 
-class cifar10(CIFAR10):
+class cifar10(CIFAR10):  
     def __init__(self, root,
                  classes=range(10),
                  train=True,
@@ -56,7 +56,8 @@ class cifar10(CIFAR10):
 
         np.random.seed(1993)
         cls_list = [i for i in range(100)]
-        np.random.shuffle(cls_list)
+        np.random.shuffle(cls_list)  # 一百个类的分类（和外层一样）
+
         self.class_mapping = np.array(cls_list, copy=True)
         
         # Select subset of classes
@@ -64,11 +65,10 @@ class cifar10(CIFAR10):
             train_data = []
             train_labels = []
 
-            for i in range(len(self.data)):
-                if self.targets[i] in classes:
-                    train_data.append(self.data[i])
-                    #train_labels.append(self.targets[i])
-                    train_labels.append(cls_list.index(self.targets[i]))
+            for i in range(len(self.data)):  # self.data为全体照片
+                if self.targets[i] in classes:  # 对于传入的classes内的类的图片（classes = class_index[i:i + CLASS_NUM_IN_BATCH]都是原始label）
+                    train_data.append(self.data[i])  # data是图片
+                    train_labels.append(cls_list.index(self.targets[i]))  # label是在seed1993下的index作为新序号（从零开始连续）https://i.loli.net/2021/06/19/Jn1wfDC6Y9SpctB.png
 
             self.train_data = np.array(train_data)
             self.train_labels = train_labels
@@ -96,7 +96,6 @@ class cifar10(CIFAR10):
 
         if self.transform is not None:
             if self.train:
-                #img_ori, img, img_aug = self.transform(img)
                 img, img_aug = self.transform(img)
             else:
                 img, _ = self.transform(img)
@@ -105,7 +104,6 @@ class cifar10(CIFAR10):
             target = self.target_transform(target)
         
         if self.train:
-            #return img_ori, img, img_aug, target
             return img, img_aug, target
         else:
             return img, img, target
@@ -189,7 +187,8 @@ if __name__ == '__main__':
     data = cifar100("./data/", download=False, train=False)
     random.seed(time.time())
     idx = random.randint(0, len(data) - 1)
-    img, label = data[idx]
+    print(idx)
+    img, _, label = data[idx]
     plt.imshow(np.array(img))
     orig_label = data.get_original_label(label)
     label_info = data.get_label_info(orig_label)
