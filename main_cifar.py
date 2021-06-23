@@ -244,11 +244,6 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
 
         # 开始迭代
         for batch_idx, (x, _, target) in enumerate(train_loader):  # 前两个参数是两次独立transform_ori的结果， x是
-            
-            if batch_idx == 0 and epoch_index == 1:
-                print(target)
-                print(len(test_classes))
-                print(CLASS_NUM_IN_BATCH)
 
             optimizer.zero_grad()
 
@@ -410,42 +405,45 @@ def icarl_reduce_exemplar_sets(m):
 
 
 #Construct an exemplar set for image set
-def icarl_construct_exemplar_set(model, images, m, transform):
-
+def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:ISSUE
+    
     model.eval()
-    # Compute and cache features for each example
     features = []
     with torch.no_grad():
         for img in images:
             x = Variable(transform(Image.fromarray(img))).cuda()
             x = x.unsqueeze(0)
-            feat = model.forward(x, rd=True).data.cpu().numpy()
+            feat = model.forward(x, rd=True).data.cpu().numpy()  # TODO: rd? 
             feat = feat / np.linalg.norm(feat)  # Normalize
             features.append(feat[0])
 
         features = np.array(features)
-        class_mean = np.mean(features, axis=0)
+        class_mean = np.mean(features, axis=0)  # 全部训练样本feature的中点
         class_mean = class_mean / np.linalg.norm(class_mean)  # Normalize
 
         exemplar_set = []
-        exemplar_features = []  # list of Variables of shape (feature_size,)
+        exemplar_features = []  
         exemplar_dist = []
         for k in range(int(m)):
-            S = np.sum(exemplar_features, axis=0)
-            phi = features
-            mu = class_mean
+
+            # 计算各个feature和中点的距离
+            S = np.sum(exemplar_features, axis=0)  # 选出的feature相加
+            phi = features  # 全部feature （500，64）
+            mu = class_mean  # 全部feature的中点 （64）
             mu_p = 1.0 / (k + 1) * (phi + S)
             mu_p = mu_p / np.linalg.norm(mu_p)
             dist = np.sqrt(np.sum((mu - mu_p)**2, axis=1))
 
+            # save：随机选样本
             idx = np.random.randint(0, features.shape[0])
 
             exemplar_dist.append(dist[idx])
             exemplar_set.append(images[idx])
             exemplar_features.append(features[idx])
-            features[idx, :] = 0.0
 
-        # random exemplar selection
+            features[idx, :] = 0.0  # 被选到的样本特征置零，下一个循环里phi的这一行就很小了，和mean的差dist会很大
+
+        # 将选好的features按距离排序
         exemplar_dist = np.array(exemplar_dist)
         exemplar_set = np.array(exemplar_set)
         ind = exemplar_dist.argsort()
@@ -547,10 +545,10 @@ if __name__ == '__main__':
                 print("Constructing exemplar set for class-%d..." %
                       (class_index[y]))
             images = train_set.get_image_class(y)  #获取第y类全体图片
-            icarl_construct_exemplar_set(net, images, m, transform_test)  # TODO (新net)
+            icarl_construct_exemplar_set(net, images, m, transform_test)  # 对每一类构建样本集
 
         print("exemplar set ready")
-
+        
         # 训练模型
         if args.resume and i == 0:
             net.load_state_dict(torch.load(args.resume_path))

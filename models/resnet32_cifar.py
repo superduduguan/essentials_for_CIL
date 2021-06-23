@@ -49,7 +49,7 @@ class BasicBlock(nn.Module):
             residual = self.downsample(x)
 
         out += residual
-        if not self.last: #remove ReLU in the last layer
+        if not self.last:  #remove ReLU in the last layer
             out = self.relu(out)
 
         return out
@@ -73,6 +73,7 @@ class ResNet(nn.Module):
         self.fc = CosineLinear(64 * block.expansion, num_classes)
         self.l2norm = Normalize(2)
 
+        # 定义初始化
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -174,13 +175,13 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
     
         if rd:
-            return F.normalize(x, p=2,dim=1)
+            return F.normalize(x, p=2, dim=1)
             
         if feat:
             x = self.fc1(x)
             x = self.relu_(x)
             x = self.fc2(x)
-            return F.normalize(x, p=2,dim=1)
+            return F.normalize(x, p=2, dim=1)
         else:
             x = self.fc(x)
             return x
