@@ -505,17 +505,17 @@ if __name__ == '__main__':
     old_net.cuda()
 
     
-    cls_list = [0] + [a for a in range(args.start_classes, 100, args.new_classes)]  #[0, 50, 60, 70, 80, 90, 100]
+    cls_list = [0] + [a for a in range(args.start_classes, 100, args.new_classes)]  #迭代56个phase[0, 50, 60, 70, 80, 90]
     for i in cls_list:
         print("==> Current Class: ", class_index[i:i + CLASS_NUM_IN_BATCH])
         print('==> Building model..')
         
         # 增加输出头
-        if i == args.start_classes:  # 当phase = 1时，
+        if i == args.start_classes:  # 当phase = 1时(phase0 结束时)
             CLASS_NUM_IN_BATCH = args.new_classes  #10
             net.change_output_dim(new_dim=i + CLASS_NUM_IN_BATCH)
         if i > args.start_classes:  # 当phase > 1时，
-            net.change_output_dim(new_dim=i + CLASS_NUM_IN_BATCH,  # TODO
+            net.change_output_dim(new_dim=i + CLASS_NUM_IN_BATCH,  
                                   second_iter=True)
         print("current net output dim:", net.get_output_dim())
 
@@ -571,7 +571,7 @@ if __name__ == '__main__':
         old_net = copy.deepcopy(net)
         old_net.cuda()
 
-        #（Self-distillation）
+        # TODO:（Self-distillation）
         if i == 0 and not args.resume:
             for sd in range(args.num_sd):  # num_sd 默认为0
                 train(model=net,

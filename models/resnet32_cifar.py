@@ -56,7 +56,7 @@ class BasicBlock(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=10):
+    def __init__(self, block, layers, num_classes=10):  # num_classes=CLASS_NUM_IN_BATCH
         self.inplanes = 16
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
@@ -70,7 +70,7 @@ class ResNet(nn.Module):
         self.fc1 = nn.Linear(64 * block.expansion, 64)
         self.fc2 = nn.Linear(64 * block.expansion, 64)
         self.relu_ = nn.ReLU(inplace=True)
-        self.fc = CosineLinear(64 * block.expansion, num_classes)
+        self.fc = CosineLinear(64 * block.expansion, num_classes)  # in: 64 * block.expansion;   out: num_classes
         self.l2norm = Normalize(2)
 
         # 定义初始化
@@ -108,32 +108,33 @@ class ResNet(nn.Module):
 
     def change_output_dim(self, new_dim, second_iter=False):
 
-        if second_iter:
+        if second_iter:  # phase > 1 （在phase0初始化结束后）
             in_features = self.fc.in_features
-            out_features1 = self.fc.fc1.out_features
-            out_features2 = self.fc.fc2.out_features
+            out_features1 = self.fc.fc1.out_features  # old(eg. 50)
+            out_features2 = self.fc.fc2.out_features  # old(eg. 10)
             print("in_features:", in_features, "out_features1:", \
                 out_features1, "out_features2:", out_features2)
-            new_fc = SplitCosineLinear(in_features, out_features1+out_features2, out_features2)
-            new_fc.fc1.weight.data[:out_features1] = self.fc.fc1.weight.data
-            new_fc.fc1.weight.data[out_features1:] = self.fc.fc2.weight.data
+            new_fc = SplitCosineLinear(in_features, out_features1+out_features2, out_features2)  # old(eg. 60 10)
+            new_fc.fc1.weight.data[:out_features1] = self.fc.fc1.weight.data  # 对用旧的fc1和fc2权重填满新的fc1
+            new_fc.fc1.weight.data[out_features1:] = self.fc.fc2.weight.data  # 对用旧的fc1和fc2权重填满新的fc1
             new_fc.sigma.data = self.fc.sigma.data
-            self.fc = new_fc 
+
+            self.fc = new_fc  # 只改了最后一层fc和输出头 
             new_out_features = new_dim
             self.n_classes = new_out_features
             
-        else:
+        else:  # phase 1(要开始训练60个类时)
             in_features = self.fc.in_features
-            out_features = self.fc.out_features
+            out_features = self.fc.out_features  # old_out: 50
     
             print("in_features:", in_features, "out_features:", out_features)
-            new_out_features = new_dim
-            num_new_classes = new_dim-out_features
-            new_fc = SplitCosineLinear(in_features, out_features, num_new_classes)
-
-            new_fc.fc1.weight.data = self.fc.weight.data
+            new_out_features = new_dim  # new_out: 60
+            num_new_classes = new_dim - out_features  # 10
+            new_fc = SplitCosineLinear(in_features, out_features, num_new_classes)  # 分为50和10
+            new_fc.fc1.weight.data = self.fc.weight.data  # 原本的权重给前50类处
             new_fc.sigma.data = self.fc.sigma.data
-            self.fc = new_fc
+
+            self.fc = new_fc  # 只改了最后一层fc和输出头 
             self.n_classes = new_out_features
      
 
@@ -174,15 +175,16 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
     
-        if rd:
+        if rd:  # 预测的时候获取标准化后的特征
             return F.normalize(x, p=2, dim=1)
             
-        if feat:
+        if feat:  # 似乎没用上
+            print('\n\n\n\n\n\n\n\n\n')
             x = self.fc1(x)
             x = self.relu_(x)
             x = self.fc2(x)
             return F.normalize(x, p=2, dim=1)
-        else:
+        else:  # 训练网络的时候，在特征后接cosine-linear
             x = self.fc(x)
             return x
 

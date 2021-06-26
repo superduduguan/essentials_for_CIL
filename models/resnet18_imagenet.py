@@ -143,7 +143,7 @@ class ResNet(nn.Module):
 
     def change_output_dim(self, new_dim, second_iter=False):
 
-        if second_iter:
+        if second_iter:  
             in_features = self.fc.in_features
             out_features1 = self.fc.fc1.out_features
             out_features2 = self.fc.fc2.out_features
@@ -157,7 +157,7 @@ class ResNet(nn.Module):
             new_out_features = new_dim
             self.n_classes = new_out_features
 
-        else:
+        else:  
             in_features = self.fc.in_features
             out_features = self.fc.out_features
 

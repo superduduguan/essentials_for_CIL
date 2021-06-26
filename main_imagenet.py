@@ -319,7 +319,7 @@ def icarl_construct_exemplar_set(model, images, m, transform):
         
         for img in images:
             x = Variable(transform(Image.fromarray(img))).cuda()
-            x=x.unsqueeze(0)
+            x = x.unsqueeze(0)
             feat = model.forward(x, feat=True).data.cpu().numpy()
             feat = feat / np.linalg.norm(feat) # Normalize
             features.append(feat[0])
