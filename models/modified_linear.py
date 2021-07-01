@@ -3,6 +3,7 @@ import math
 import torch
 from torch.nn.parameter import Parameter
 from torch.nn import functional as F
+import numpy as np
 from torch.nn import Module
 import torch.nn as nn
 
@@ -25,8 +26,8 @@ class CosineLinear(Module):
             self.sigma.data.fill_(1)  #for initializaiton of sigma
 
     def forward(self, input):
-        out = F.linear(F.normalize(input, p=2, dim=1), \
-                F.normalize(self.weight, p=2, dim=1))
+        out = F.linear(F.normalize(input, p=2, dim=1), F.normalize(self.weight, p=2, dim=1))  # input归一化 * weight归一化
+
         if self.sigma is not None:
             out = self.sigma * out
         return out

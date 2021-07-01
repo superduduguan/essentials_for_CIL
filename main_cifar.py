@@ -18,6 +18,7 @@ import random
 import copy
 import math
 import numpy as np
+import time
 
 from data.data_loader import cifar10, cifar100, ExemplarDataset
 
@@ -217,7 +218,8 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
             exemplar_set,
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=4,
+            pin_memory=True,
+            num_workers=6,
             drop_last=True)
         exemplar_loader_iter = iter(exemplar_loader)
 
@@ -352,7 +354,8 @@ def evaluate_net(model, transform, train_classes, test_classes):
     train_loader = torch.utils.data.DataLoader(train_set,
                                                batch_size=args.batch_size,
                                                shuffle=False,
-                                               num_workers=4)
+                                               pin_memory=True,
+                                               num_workers=6)
 
     total = 0.0
     correct = 0.0
@@ -379,7 +382,8 @@ def evaluate_net(model, transform, train_classes, test_classes):
     test_loader = torch.utils.data.DataLoader(test_set,
                                               batch_size=args.batch_size,
                                               shuffle=False,
-                                              num_workers=4)
+                                              pin_memory=True,
+                                              num_workers=6)
 
     total = 0.0
     correct = 0.0
@@ -405,18 +409,37 @@ def icarl_reduce_exemplar_sets(m):
 
 
 #Construct an exemplar set for image set
-def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:ISSUE
-    
+def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:reconstruction
+    print('\nicarl begin')
     model.eval()
     features = []
+    
     with torch.no_grad():
-        for img in images:
-            x = Variable(transform(Image.fromarray(img))).cuda()
-            x = x.unsqueeze(0)
-            feat = model.forward(x, rd=True).data.cpu().numpy()  # TODO: rd? 
-            feat = feat / np.linalg.norm(feat)  # Normalize
-            features.append(feat[0])
+        
+        a = time.time()
 
+        for index in range(len(images)):
+            x = Variable(transform(Image.fromarray(images[index]))).cuda()
+            x = x.unsqueeze(0)  # (1, 3, 32, 32) ==> (100, 3, 32, 32)
+            if index == 0:
+                X = x
+            else:
+                X = torch.cat((X, x), 0)
+            
+        feats = model.forward(X, rd=True)
+        feats = feats.data.cpu().numpy()
+        feats = feats / np.linalg.norm(feats, axis=1, ord=2, keepdims=True)
+        features = feats
+
+        
+
+#             feat = model.forward(x, rd=True)  # # 预测的时候获取标准化后的特征
+# 
+#             feat = feat.data.cpu().numpy()
+#               # Normalize
+#             features.append(feat[0])
+        b = time.time()
+        print('feat recur:', b-a)
         features = np.array(features)
         class_mean = np.mean(features, axis=0)  # 全部训练样本feature的中点
         class_mean = class_mean / np.linalg.norm(class_mean)  # Normalize
@@ -424,6 +447,8 @@ def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:ISSUE
         exemplar_set = []
         exemplar_features = []  
         exemplar_dist = []
+        
+        a = time.time()
         for k in range(int(m)):
 
             # 计算各个feature和中点的距离
@@ -439,9 +464,12 @@ def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:ISSUE
 
             exemplar_dist.append(dist[idx])
             exemplar_set.append(images[idx])
-            exemplar_features.append(features[idx])
+            tmp = np.array(features[idx])
+            exemplar_features.append(tmp)
 
             features[idx, :] = 0.0  # 被选到的样本特征置零，下一个循环里phi的这一行就很小了，和mean的差dist会很大
+        b = time.time()
+        
 
         # 将选好的features按距离排序
         exemplar_dist = np.array(exemplar_dist)
@@ -452,7 +480,6 @@ def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:ISSUE
         exemplar_sets.append(np.array(exemplar_set))
     if announce:
         print('exemplar set shape: ', len(exemplar_set))
-
 
 if __name__ == '__main__':
     
@@ -529,7 +556,8 @@ if __name__ == '__main__':
         trainLoader = torch.utils.data.DataLoader(train_set,
                                                   batch_size=args.batch_size,
                                                   shuffle=True,
-                                                  num_workers=4)
+                                                  pin_memory=True,
+                                                  num_workers=6)
 
         train_classes = class_index[i:i + CLASS_NUM_IN_BATCH]
         test_classes = class_index[:i + CLASS_NUM_IN_BATCH]  
@@ -545,6 +573,7 @@ if __name__ == '__main__':
                 print("Constructing exemplar set for class-%d..." %
                       (class_index[y]))
             images = train_set.get_image_class(y)  #获取第y类全体图片
+            print('y=', y)
             icarl_construct_exemplar_set(net, images, m, transform_test)  # 对每一类构建样本集
 
         print("exemplar set ready")
