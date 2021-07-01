@@ -249,7 +249,7 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
 
             optimizer.zero_grad()
 
-            # Classification Loss: 仅对当前新来类计算损失函数
+            # Classification Loss: 仅对当前新来类计算损失函数 cls_loss_new
             x, target = x.cuda(), target.cuda()
             targets = target - len(test_classes) + CLASS_NUM_IN_BATCH  # TODO
             logits = model(x)
@@ -266,55 +266,45 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
                 factor = ((len(test_classes) / CLASS_NUM_IN_BATCH)
                           ** (args.pow)) * args.lamda
 
-            # while using self-distillation # TODO
-            if len(test_classes) // CLASS_NUM_IN_BATCH == 1 and use_sd:
-                if args.kd:
-                    with torch.no_grad():
-                        dist_target = old_model(x)
-                    logits_dist = logits
-                    T_sd = args.T_sd
-                    dist_loss = nn.KLDivLoss()(
-                        F.log_softmax(logits_dist / T_sd, dim=1),
-                        F.softmax(dist_target / T_sd, dim=1)) * (
-                            T_sd * T_sd)  # best model
-                    sum_dist_loss += dist_loss.item()
 
-                    loss += factor * args.w_kd * dist_loss
 
-            # Distillation : task-2 onwards
+            # 计算蒸馏损失
             if len(test_classes) // CLASS_NUM_IN_BATCH > 1:  # 只要不是phase0
 
+                # 计算新类样本在新旧模型上的差异 dist_loss_new
                 if args.kd:
                     with torch.no_grad():
-                        dist_target = old_model(x)  # 旧logits TODO
-                    logits_dist = logits[:, :-CLASS_NUM_IN_BATCH]  # 新模型在旧类样本上的logits
+                        dist_target = old_model(x)  # 新类样本在旧模型上的logits
+                    logits_dist = logits[:, :-CLASS_NUM_IN_BATCH]  # 新类样本在新模型上的（旧输出头的）logits
                     T = args.T
                     dist_loss_new = nn.KLDivLoss()(
                         F.log_softmax(logits_dist / T, dim=1),
                         F.softmax(dist_target / T, dim=1)) * (T * T)
 
+                # 加载memory
                 try:
                     batch_ex = next(exemplar_loader_iter)
                 except:
+                    print('\n\n\n\n\n\n\nsss')
                     exemplar_loader_iter = iter(exemplar_loader)
                     batch_ex = next(exemplar_loader_iter)
 
-                # Classification loss: exemplar classes loss
+                # 计算旧类样本上的分类损失
                 x_old, target_old = batch_ex
                 x_old, target_old = x_old.cuda(), target_old.cuda()
-                logits_old = model(x_old)
-
+                logits_old = model(x_old)  # 旧数据在新模型的分类预测
                 old_classes = len(test_classes) - CLASS_NUM_IN_BATCH
                 cls_loss_old = criterion_ce(logits_old, target_old.long())
 
                 loss += cls_loss_old
                 sum_cls_old_loss += cls_loss_old.item()
 
+                # 计算旧类样本在新旧模型上的差异 dist_loss_new
                 if args.kd:
-                    # KD exemplar
+    
                     with torch.no_grad():
-                        dist_target_old = old_model(x_old)
-                    logits_dist_old = logits_old[:, :-CLASS_NUM_IN_BATCH]
+                        dist_target_old = old_model(x_old)  # 旧数据在旧模型上的输出
+                    logits_dist_old = logits_old[:, :-CLASS_NUM_IN_BATCH]  # 旧数据在新模型上的输出
                     dist_loss_old = nn.KLDivLoss()(
                         F.log_softmax(logits_dist_old / T, dim=1),
                         F.softmax(dist_target_old / T, dim=1)) * (
@@ -322,7 +312,10 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
 
                     dist_loss = dist_loss_old + dist_loss_new
                     sum_dist_loss += dist_loss.item()
-                    loss += factor * args.w_kd * dist_loss
+                    loss += factor * args.w_kd * dist_loss  
+                    #  loss = factor * dist_loss + cls_loss_old + cls_loss_new
+                    #       = factor * (dist_loss_old + dist_loss_new) + cls_loss_old + cls_loss_new
+                    #       = factor * (dist_loss_old(logits_dist_old, dist_target_old) + dist_loss_new(logits_dist, dist_target)) + cls_loss_old(logits_old, target_old) + cls_loss_new(logits[:, -CLASS_NUM_IN_BATCH:], targets))
 
             sum_loss += loss.item()
 
@@ -416,7 +409,7 @@ def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:reconstru
     
     with torch.no_grad():
         
-        a = time.time()
+
 
         for index in range(len(images)):
             x = Variable(transform(Image.fromarray(images[index]))).cuda()
@@ -431,15 +424,7 @@ def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:reconstru
         feats = feats / np.linalg.norm(feats, axis=1, ord=2, keepdims=True)
         features = feats
 
-        
 
-#             feat = model.forward(x, rd=True)  # # 预测的时候获取标准化后的特征
-# 
-#             feat = feat.data.cpu().numpy()
-#               # Normalize
-#             features.append(feat[0])
-        b = time.time()
-        print('feat recur:', b-a)
         features = np.array(features)
         class_mean = np.mean(features, axis=0)  # 全部训练样本feature的中点
         class_mean = class_mean / np.linalg.norm(class_mean)  # Normalize
@@ -600,20 +585,7 @@ if __name__ == '__main__':
         old_net = copy.deepcopy(net)
         old_net.cuda()
 
-        # TODO:（Self-distillation）
-        if i == 0 and not args.resume:
-            for sd in range(args.num_sd):  # num_sd 默认为0
-                train(model=net,
-                      old_model=old_net,
-                      epoch=args.epochs_sd,
-                      lr=args.lr_sd,
-                      tempature=T,
-                      lamda=args.lamda,
-                      train_loader=trainLoader,
-                      use_sd=True,
-                      checkPoint=50)
-                old_net = copy.deepcopy(net)
-                old_net.cuda()
+
         
         # 保存模型
         if args.save:
