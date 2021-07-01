@@ -249,7 +249,7 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
 
             optimizer.zero_grad()
 
-            # Classification Loss: 仅对当前新来类计算损失函数 cls_loss_new
+            # 计算新类样本在新模型上的分类损失 cls_loss_new
             x, target = x.cuda(), target.cuda()
             targets = target - len(test_classes) + CLASS_NUM_IN_BATCH  # TODO
             logits = model(x)
@@ -266,28 +266,21 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
                 factor = ((len(test_classes) / CLASS_NUM_IN_BATCH)
                           ** (args.pow)) * args.lamda
 
-
-
-            # 计算蒸馏损失
+            # 当有了旧样本和旧模型时
             if len(test_classes) // CLASS_NUM_IN_BATCH > 1:  # 只要不是phase0
 
                 # 计算新类样本在新旧模型上的差异 dist_loss_new
-                if args.kd:
-                    with torch.no_grad():
-                        dist_target = old_model(x)  # 新类样本在旧模型上的logits
-                    logits_dist = logits[:, :-CLASS_NUM_IN_BATCH]  # 新类样本在新模型上的（旧输出头的）logits
-                    T = args.T
-                    dist_loss_new = nn.KLDivLoss()(
-                        F.log_softmax(logits_dist / T, dim=1),
-                        F.softmax(dist_target / T, dim=1)) * (T * T)
+                with torch.no_grad():
+                    dist_target = old_model(x)  # 新类样本在旧模型上的logits
+                logits_dist = logits[:, :-CLASS_NUM_IN_BATCH]  # 新类样本在新模型上的（旧输出头的）logits
+                T = args.T
+                dist_loss_new = nn.KLDivLoss()(
+                    F.log_softmax(logits_dist / T, dim=1),
+                    F.softmax(dist_target / T, dim=1)) * (T * T)
 
                 # 加载memory
-                try:
-                    batch_ex = next(exemplar_loader_iter)
-                except:
-                    print('\n\n\n\n\n\n\nsss')
-                    exemplar_loader_iter = iter(exemplar_loader)
-                    batch_ex = next(exemplar_loader_iter)
+                batch_ex = next(exemplar_loader_iter)
+
 
                 # 计算旧类样本上的分类损失
                 x_old, target_old = batch_ex
@@ -299,23 +292,20 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
                 loss += cls_loss_old
                 sum_cls_old_loss += cls_loss_old.item()
 
-                # 计算旧类样本在新旧模型上的差异 dist_loss_new
-                if args.kd:
-    
-                    with torch.no_grad():
-                        dist_target_old = old_model(x_old)  # 旧数据在旧模型上的输出
-                    logits_dist_old = logits_old[:, :-CLASS_NUM_IN_BATCH]  # 旧数据在新模型上的输出
-                    dist_loss_old = nn.KLDivLoss()(
-                        F.log_softmax(logits_dist_old / T, dim=1),
-                        F.softmax(dist_target_old / T, dim=1)) * (
-                            T * T)  # best model
+                # 计算旧类样本在新旧模型上的差异 dist_loss_old
+                with torch.no_grad():
+                    dist_target_old = old_model(x_old)  # 旧数据在旧模型上的输出
+                logits_dist_old = logits_old[:, :-CLASS_NUM_IN_BATCH]  # 旧数据在新模型上的输出
+                dist_loss_old = nn.KLDivLoss()(
+                    F.log_softmax(logits_dist_old / T, dim=1),
+                    F.softmax(dist_target_old / T, dim=1)) * (T * T)  
 
-                    dist_loss = dist_loss_old + dist_loss_new
-                    sum_dist_loss += dist_loss.item()
-                    loss += factor * args.w_kd * dist_loss  
-                    #  loss = factor * dist_loss + cls_loss_old + cls_loss_new
-                    #       = factor * (dist_loss_old + dist_loss_new) + cls_loss_old + cls_loss_new
-                    #       = factor * (dist_loss_old(logits_dist_old, dist_target_old) + dist_loss_new(logits_dist, dist_target)) + cls_loss_old(logits_old, target_old) + cls_loss_new(logits[:, -CLASS_NUM_IN_BATCH:], targets))
+                dist_loss = dist_loss_old + dist_loss_new
+                sum_dist_loss += dist_loss.item()
+                loss += factor * args.w_kd * dist_loss  
+                #  loss = factor * dist_loss + cls_loss_old + cls_loss_new
+                #       = factor * (dist_loss_old + dist_loss_new) + cls_loss_old + cls_loss_new
+                #       = factor * (dist_loss_old(logits_dist_old, dist_target_old) + dist_loss_new(logits_dist, dist_target)) + cls_loss_old(logits_old, target_old) + cls_loss_new(logits[:, -CLASS_NUM_IN_BATCH:], targets))
 
             sum_loss += loss.item()
 
