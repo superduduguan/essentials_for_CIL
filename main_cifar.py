@@ -219,7 +219,7 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
             batch_size=args.batch_size,
             shuffle=True,
             pin_memory=True,
-            num_workers=6,
+            num_workers=12,
             drop_last=True)
         exemplar_loader_iter = iter(exemplar_loader)
 
@@ -249,11 +249,11 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
 
             optimizer.zero_grad()
 
-            # 计算新类样本在新模型上的分类损失 cls_loss_new
+            # 计算新类样本在新模型上的分类损失 cls_loss_new（仅仅在新输出头上softmax）
             x, target = x.cuda(), target.cuda()
-            targets = target - len(test_classes) + CLASS_NUM_IN_BATCH  # TODO
+            targets = target - (len(test_classes) - CLASS_NUM_IN_BATCH)  # 相当于target的label减去旧样本类个数  
             logits = model(x)
-            cls_loss_new = criterion_ce(logits[:, -CLASS_NUM_IN_BATCH:], targets)  # TODO
+            cls_loss_new = criterion_ce(logits[:, -CLASS_NUM_IN_BATCH:], targets) 
             loss = args.w_cls * cls_loss_new
             sum_cls_new_loss += cls_loss_new.item()
 
@@ -279,10 +279,13 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
                     F.softmax(dist_target / T, dim=1)) * (T * T)
 
                 # 加载memory
-                batch_ex = next(exemplar_loader_iter)
+                try:
+                    batch_ex = next(exemplar_loader_iter)
+                except:  # 如果exemplar被遍历完一次了，就再来一次
+                    exemplar_loader_iter = iter(exemplar_loader)
+                    batch_ex = next(exemplar_loader_iter)
 
-
-                # 计算旧类样本上的分类损失
+                # 计算旧类样本在新模型上的分类损失（全部输出头softmax）
                 x_old, target_old = batch_ex
                 x_old, target_old = x_old.cuda(), target_old.cuda()
                 logits_old = model(x_old)  # 旧数据在新模型的分类预测
@@ -338,7 +341,7 @@ def evaluate_net(model, transform, train_classes, test_classes):
                                                batch_size=args.batch_size,
                                                shuffle=False,
                                                pin_memory=True,
-                                               num_workers=6)
+                                               num_workers=12)
 
     total = 0.0
     correct = 0.0
@@ -366,7 +369,7 @@ def evaluate_net(model, transform, train_classes, test_classes):
                                               batch_size=args.batch_size,
                                               shuffle=False,
                                               pin_memory=True,
-                                              num_workers=6)
+                                              num_workers=12)
 
     total = 0.0
     correct = 0.0
@@ -393,7 +396,6 @@ def icarl_reduce_exemplar_sets(m):
 
 #Construct an exemplar set for image set
 def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:reconstruction
-    print('\nicarl begin')
     model.eval()
     features = []
     
@@ -532,7 +534,7 @@ if __name__ == '__main__':
                                                   batch_size=args.batch_size,
                                                   shuffle=True,
                                                   pin_memory=True,
-                                                  num_workers=6)
+                                                  num_workers=12)
 
         train_classes = class_index[i:i + CLASS_NUM_IN_BATCH]
         test_classes = class_index[:i + CLASS_NUM_IN_BATCH]  
