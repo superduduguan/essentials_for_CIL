@@ -219,7 +219,7 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
             batch_size=args.batch_size,
             shuffle=True,
             pin_memory=True,
-            num_workers=12,
+            num_workers=num_workers,
             drop_last=True)
         exemplar_loader_iter = iter(exemplar_loader)
 
@@ -253,9 +253,16 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
             x, target = x.cuda(), target.cuda()
             targets = target - (len(test_classes) - CLASS_NUM_IN_BATCH)  # 相当于target的label减去旧样本类个数  
             logits = model(x)
+
             cls_loss_new = criterion_ce(logits[:, -CLASS_NUM_IN_BATCH:], targets) 
             loss = args.w_cls * cls_loss_new
             sum_cls_new_loss += cls_loss_new.item()
+
+            # center loss
+            # feats = model.forward(x, feat=True)
+            # for index in range(len(x)):
+                
+
 
             # 默认使用动态lamda
             if args.const_lamda:
@@ -306,10 +313,7 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
                 dist_loss = dist_loss_old + dist_loss_new
                 sum_dist_loss += dist_loss.item()
                 loss += factor * args.w_kd * dist_loss  
-                #  loss = factor * dist_loss + cls_loss_old + cls_loss_new
-                #       = factor * (dist_loss_old + dist_loss_new) + cls_loss_old + cls_loss_new
-                #       = factor * (dist_loss_old(logits_dist_old, dist_target_old) + dist_loss_new(logits_dist, dist_target)) + cls_loss_old(logits_old, target_old) + cls_loss_new(logits[:, -CLASS_NUM_IN_BATCH:], targets))
-
+               
             sum_loss += loss.item()
 
             loss.backward()
@@ -341,7 +345,7 @@ def evaluate_net(model, transform, train_classes, test_classes):
                                                batch_size=args.batch_size,
                                                shuffle=False,
                                                pin_memory=True,
-                                               num_workers=12)
+                                               num_workers=num_workers)
 
     total = 0.0
     correct = 0.0
@@ -369,7 +373,7 @@ def evaluate_net(model, transform, train_classes, test_classes):
                                               batch_size=args.batch_size,
                                               shuffle=False,
                                               pin_memory=True,
-                                              num_workers=12)
+                                              num_workers=num_workers)
 
     total = 0.0
     correct = 0.0
@@ -469,6 +473,7 @@ if __name__ == '__main__':
     CLASS_NUM_IN_BATCH = args.start_classes  #（initial class num 50)
     T = args.T
     K = args.K
+    num_workers = 2
 
     exemplar_sets = []
     exemplar_means = []
@@ -534,7 +539,7 @@ if __name__ == '__main__':
                                                   batch_size=args.batch_size,
                                                   shuffle=True,
                                                   pin_memory=True,
-                                                  num_workers=12)
+                                                  num_workers=num_workers)
 
         train_classes = class_index[i:i + CLASS_NUM_IN_BATCH]
         test_classes = class_index[:i + CLASS_NUM_IN_BATCH]  
@@ -545,12 +550,11 @@ if __name__ == '__main__':
         m = K // (i + CLASS_NUM_IN_BATCH)  #记忆中每类样本数
         if i != 0:
             icarl_reduce_exemplar_sets(m)
-        for y in range(i, i + CLASS_NUM_IN_BATCH):
+        for y in tqdm(range(i, i + CLASS_NUM_IN_BATCH)):
             if announce:
                 print("Constructing exemplar set for class-%d..." %
                       (class_index[y]))
             images = train_set.get_image_class(y)  #获取第y类全体图片
-            print('y=', y)
             icarl_construct_exemplar_set(net, images, m, transform_test)  # 对每一类构建样本集
 
         print("exemplar set ready")
@@ -561,7 +565,7 @@ if __name__ == '__main__':
             net.train()
         else:
             net.train()
-            train(model=net,  # TODO
+            train(model=net,  
                   old_model=old_net,
                   epoch=args.epochs,
                   lr=args.lr,

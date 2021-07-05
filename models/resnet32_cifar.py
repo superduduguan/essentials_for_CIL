@@ -178,12 +178,9 @@ class ResNet(nn.Module):
         if rd:  # 预测的时候获取标准化后的特征
             return F.normalize(x, p=2, dim=1)
             
-        if feat:  # 似乎没用上
+        if feat:  # 获取最直接的特征
             print('\n\n\n\n\n\n\n\n\n')
-            x = self.fc1(x)
-            x = self.relu_(x)
-            x = self.fc2(x)
-            return F.normalize(x, p=2, dim=1)
+            return x
         else:  # 训练网络的时候，在特征后接cosine-linear
             x = self.fc(x)
             return x
