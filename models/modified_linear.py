@@ -33,7 +33,7 @@ class CosineLinear(Module):
         return out
 
 class SplitCosineLinear(Module):
-    # 把两个cosine=linear(in_out1)、cosine=linear(in_out2)层叠加在一起
+    # 把两个cosine-linear(in_out1)、cosine-linear(in_out2)层叠加在一起
     def __init__(self, in_features, out_features1, out_features2, sigma=True):
         super(SplitCosineLinear, self).__init__()
         self.in_features = in_features

@@ -108,7 +108,7 @@ class ResNet(nn.Module):
 
     def change_output_dim(self, new_dim, second_iter=False):
 
-        if second_iter:  # phase > 1 （在phase0初始化结束后）
+        if second_iter:  # phase > 1 
             in_features = self.fc.in_features
             out_features1 = self.fc.fc1.out_features  # old(eg. 50)
             out_features2 = self.fc.fc2.out_features  # old(eg. 10)

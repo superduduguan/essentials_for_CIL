@@ -332,7 +332,7 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
         scheduler.step()
 
 
-def evaluate_net(model, transform, train_classes, test_classes):
+def evaluate_net(model, transform, train_classes, test_classes, i):
     model.eval()
 
     train_set = cifar100(root=args.data_root,
@@ -377,18 +377,38 @@ def evaluate_net(model, transform, train_classes, test_classes):
 
     total = 0.0
     correct = 0.0
+    old2new = 0.0
+    new2old = 0.0
+    old2oldwrong = 0.0
+    new2newwrong = 0.0
     for j, (_, images, labels) in enumerate(test_loader):
         out = torch.softmax(model(images.cuda()), dim=1)
         _, preds = torch.max(out, dim=1, keepdim=False)
         labels = [y.item() for y in labels]
         np.asarray(labels)
         total += preds.size(0)
-        correct += (preds.cpu().numpy() == labels).sum()
+        preds = preds.cpu().numpy()
+        for index in range(len(labels)):
+            if labels[index] < i and preds[index] >= i:
+                old2new += 1
+            if labels[index] >= i and preds[index] < i:
+                new2old += 1
+            if labels[index] < i and preds[index] < i and labels[index] != preds[index]:
+                old2oldwrong += 1
+            if labels[index] >= i and preds[index] >= i and labels[index] != preds[index]:
+                new2newwrong += 1
+
+        correct += (preds == labels).sum()
 
     # Test Accuracy
     test_acc = 100.0 * correct / total
-    print('correct: ', correct, 'total: ', total)
+    print('old2new:', old2new / total)
+    print('new2old:', new2old / total)
+    print('correct: ', correct / total)
+    print('old2oldwrong', old2oldwrong / total)
+    print('new2newwrong:', new2newwrong / total)
     print('Test Accuracy : %.2f' % test_acc)
+    print('all', old2new+new2old+correct+old2oldwrong+new2newwrong)
 
     return test_acc
 
@@ -598,7 +618,8 @@ if __name__ == '__main__':
             model=net,
             transform=transform_val,
             train_classes=class_index[i:i + CLASS_NUM_IN_BATCH],
-            test_classes=class_index[:i + CLASS_NUM_IN_BATCH])
+            test_classes=class_index[:i + CLASS_NUM_IN_BATCH],
+            i=i)
         avg_acc.append(test_acc)
         print('\n----------------------------------------------------\n')
 
