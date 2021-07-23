@@ -19,6 +19,7 @@ import copy
 import math
 import numpy as np
 import time
+import pickle
 
 from data.data_loader import cifar10, cifar100, ExemplarDataset
 
@@ -347,8 +348,15 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
                                                pin_memory=True,
                                                num_workers=num_workers)
 
+    # Train Accuracy
     total = 0.0
     correct = 0.0
+    old2new = 0.0
+    new2old = 0.0
+    old2oldwrong = 0.0
+    new2newwrong = 0.0
+    new = 0.0
+    old = 0.0
     compute_means = True
     for j, (_, images, labels) in enumerate(train_loader):  # if train: return img, img_aug, target
         _, preds = torch.max(torch.softmax(model(images.cuda()), dim=1),
@@ -357,12 +365,33 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
         labels = [y.item() for y in labels]
         np.asarray(labels)
         total += preds.size(0)
-        correct += (preds.cpu().numpy() == labels).sum()
+        preds = preds.cpu().numpy()
+        for index in range(len(labels)):
+            if labels[index] < i and preds[index] >= i:
+                old2new += 1
+            if labels[index] >= i and preds[index] < i:
+                new2old += 1
+            if labels[index] < i and preds[index] < i and labels[index] != preds[index]:
+                old2oldwrong += 1
+            if labels[index] >= i and preds[index] >= i and labels[index] != preds[index]:
+                new2newwrong += 1 
+            if labels[index] >= i:
+                new += 1
+            else:
+                old += 1
+        correct += (preds == labels).sum()
 
-    # Train Accuracy
-    print('correct: ', correct, 'total: ', total)
-    print('Train Accuracy : %.2f ,' % (100.0 * correct / total))
+    
+    print('train_acc: ', correct/total)
+    print('old2new:', old2new / total)
+    print('new2old:', new2old / total)
+    print('correct: ', correct / total)
+    print('old2oldwrong', old2oldwrong / total)
+    print('new2newwrong:', new2newwrong / total)
+    print('all', old2new+new2old+correct+old2oldwrong+new2newwrong)
+    print('new&old:', new, old)
 
+    # Test Accuracy
     test_set = cifar100(root=args.data_root,
                         train=False,
                         classes=test_classes,
@@ -381,6 +410,8 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
     new2old = 0.0
     old2oldwrong = 0.0
     new2newwrong = 0.0
+    new = 0.0
+    old = 0.0
     for j, (_, images, labels) in enumerate(test_loader):
         out = torch.softmax(model(images.cuda()), dim=1)
         _, preds = torch.max(out, dim=1, keepdim=False)
@@ -397,6 +428,10 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
                 old2oldwrong += 1
             if labels[index] >= i and preds[index] >= i and labels[index] != preds[index]:
                 new2newwrong += 1
+            if labels[index] >= i:
+                new += 1
+            else:
+                old += 1
 
         correct += (preds == labels).sum()
 
@@ -409,6 +444,7 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
     print('new2newwrong:', new2newwrong / total)
     print('Test Accuracy : %.2f' % test_acc)
     print('all', old2new+new2old+correct+old2oldwrong+new2newwrong)
+    print('new&old:', new, old)
 
     return test_acc
 
@@ -526,6 +562,7 @@ if __name__ == '__main__':
 
     # 加载模型
     net = resnet32_cifar(num_classes=CLASS_NUM_IN_BATCH).cuda()  #TODO
+    
     model_parameters = filter(lambda p: p.requires_grad, net.parameters())  #仅仅需要回传梯度的参数// filter(判断函数function, 可迭代对象iterable)
     params = sum([np.prod(p.size()) for p in model_parameters])
     print('number of trainable parameters: ', params)
@@ -598,12 +635,17 @@ if __name__ == '__main__':
         if i != 0 and announce:  # 打印训练好的fc1和fc2的权值范数
             weight_norm(net)
 
-        old_net = copy.deepcopy(net)
+        old_net = copy.deepcopy(net)            
         old_net.cuda()
-
+        with open(str(i) + 'X.data', 'wb') as ff:
+            try:
+                pickle.dump(net.fc.weight.data.detach().cpu(), ff)
+            except:
+                pickle.dump(torch.cat((net.fc.fc1.weight.data, net.fc.fc2.weight.data)).detach().cpu(), ff)
+    
 
         
-        # 保存模型
+        # 保存模型  
         if args.save:
             save_path = os.path.join(args.output_root, "checkpoints/cifar/", args.exp_name)
             if not os.path.exists(save_path):
