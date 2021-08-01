@@ -179,7 +179,6 @@ class ResNet(nn.Module):
             return F.normalize(x, p=2, dim=1)
             
         if feat:  # 获取最直接的特征
-            print('\n\n\n\n\n\n\n\n\n')
             return x
         else:  # 训练网络的时候，在特征后接cosine-linear
             x = self.fc(x)

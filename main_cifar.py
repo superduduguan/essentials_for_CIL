@@ -29,7 +29,6 @@ from lib.augment.autoaugment_extra import CIFAR10Policy
 from models import *
 
 compute_means = True
-exemplar_means_ = []
 avg_acc = []
 announce = 0
 
@@ -48,7 +47,7 @@ def parse_option():
                         help='num of workers to use')
     parser.add_argument('--epochs',
                         type=int,
-                        default=120,
+                        default=1,
                         help='number of training epochs')
     parser.add_argument('--epochs-sd',
                         type=int,
@@ -259,9 +258,7 @@ def train(model, old_model, epoch, lr, tempature, lamda, train_loader, use_sd,
             loss = args.w_cls * cls_loss_new
             sum_cls_new_loss += cls_loss_new.item()
 
-            # center loss
-            # feats = model.forward(x, feat=True)
-            # for index in range(len(x)):
+
                 
 
 
@@ -366,30 +363,9 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
         np.asarray(labels)
         total += preds.size(0)
         preds = preds.cpu().numpy()
-        for index in range(len(labels)):
-            if labels[index] < i and preds[index] >= i:
-                old2new += 1
-            if labels[index] >= i and preds[index] < i:
-                new2old += 1
-            if labels[index] < i and preds[index] < i and labels[index] != preds[index]:
-                old2oldwrong += 1
-            if labels[index] >= i and preds[index] >= i and labels[index] != preds[index]:
-                new2newwrong += 1 
-            if labels[index] >= i:
-                new += 1
-            else:
-                old += 1
         correct += (preds == labels).sum()
 
-    
-    print('train_acc: ', correct/total)
-    print('old2new:', old2new / total)
-    print('new2old:', new2old / total)
-    print('correct: ', correct / total)
-    print('old2oldwrong', old2oldwrong / total)
-    print('new2newwrong:', new2newwrong / total)
-    print('all', old2new+new2old+correct+old2oldwrong+new2newwrong)
-    print('new&old:', new, old)
+    print('train_correct: ', correct / total)
 
     # Test Accuracy
     test_set = cifar100(root=args.data_root,
@@ -404,21 +380,52 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
                                               pin_memory=True,
                                               num_workers=num_workers)
 
+    with torch.no_grad():
+        exemplar_features_MEAN = []
+        for index in range(len(exemplar_sets)):
+            transformed = []
+            for pic in exemplar_sets[index]:
+                transformed.append(transform_ori(pic))
+            transformed = torch.stack(transformed)
+            exemplar_features = model.forward(transformed.cuda(), feat=True)
+            exemplar_features_mean = torch.mean(exemplar_features, dim=0, keepdim=False).cpu().numpy()
+            exemplar_features_MEAN.append(exemplar_features_mean)
+        
+
     total = 0.0
     correct = 0.0
     old2new = 0.0
     new2old = 0.0
     old2oldwrong = 0.0
     new2newwrong = 0.0
+    nme_old2new = 0.0
+    nme_new2old = 0.0
+    nme_old2oldwrong = 0.0
+    nme_new2newwrong = 0.0
+    nme_correct = 0.0
     new = 0.0
     old = 0.0
-    for j, (_, images, labels) in enumerate(test_loader):
+    for j, (_, images, labels) in enumerate(test_loader):  # j => batch_index  对loader里的每个batch
+        feats = model(images.cuda(), feat=True)
+        
+        predicts = []
+        for num in range(len(labels)):  # labels[num] => class  对batch里的每个sample
+            
+            dists = []
+            for mean in exemplar_features_MEAN:  # 对每个sample计算所有dist
+                feat = feats[num].cpu().detach().numpy()
+                dist = np.linalg.norm(mean - feat)
+                dists.append(dist)
+            predict = min(range(len(dists)), key=dists.__getitem__)
+            predicts.append(predict)
+
         out = torch.softmax(model(images.cuda()), dim=1)
         _, preds = torch.max(out, dim=1, keepdim=False)
         labels = [y.item() for y in labels]
         np.asarray(labels)
         total += preds.size(0)
         preds = preds.cpu().numpy()
+        
         for index in range(len(labels)):
             if labels[index] < i and preds[index] >= i:
                 old2new += 1
@@ -432,20 +439,33 @@ def evaluate_net(model, transform, train_classes, test_classes, i):
                 new += 1
             else:
                 old += 1
+            if labels[index] < i and predicts[index] >= i:
+                nme_old2new += 1
+            if labels[index] >= i and predicts[index] < i:
+                nme_new2old += 1
+            if labels[index] < i and predicts[index] < i and labels[index] != predicts[index]:
+                nme_old2oldwrong += 1
+            if labels[index] >= i and predicts[index] >= i and labels[index] != predicts[index]:
+                nme_new2newwrong += 1
+
 
         correct += (preds == labels).sum()
+        nme_correct += (np.asarray(predicts) == np.asarray(labels)).sum()
 
     # Test Accuracy
     test_acc = 100.0 * correct / total
+    print('\ntest_correct: ', correct / total)
     print('old2new:', old2new / total)
     print('new2old:', new2old / total)
-    print('correct: ', correct / total)
     print('old2oldwrong', old2oldwrong / total)
     print('new2newwrong:', new2newwrong / total)
-    print('Test Accuracy : %.2f' % test_acc)
-    print('all', old2new+new2old+correct+old2oldwrong+new2newwrong)
     print('new&old:', new, old)
 
+    print('\nnme_correct:', nme_correct / total)
+    print('nme_old2new:', nme_old2new / total)
+    print('nme_new2old:', nme_new2old / total)
+    print('nme_old2oldwrong', nme_old2oldwrong / total)
+    print('nme_new2newwrong:', nme_new2newwrong / total)
     return test_acc
 
 
@@ -455,7 +475,7 @@ def icarl_reduce_exemplar_sets(m):
 
 
 #Construct an exemplar set for image set
-def icarl_construct_exemplar_set(model, images, m, transform):  # TODO:reconstruction
+def icarl_construct_exemplar_set(model, images, m, transform):  
     model.eval()
     features = []
     
@@ -573,7 +593,7 @@ if __name__ == '__main__':
     
     cls_list = [0] + [a for a in range(args.start_classes, 100, args.new_classes)]  #迭代56个phase[0, 50, 60, 70, 80, 90]
     for i in cls_list:
-        print("==> Current Class: ", class_index[i:i + CLASS_NUM_IN_BATCH])
+        print("labels:", i, i + CLASS_NUM_IN_BATCH)
         print('==> Building model..')
         
         # 增加输出头
@@ -600,10 +620,11 @@ if __name__ == '__main__':
 
         train_classes = class_index[i:i + CLASS_NUM_IN_BATCH]
         test_classes = class_index[:i + CLASS_NUM_IN_BATCH]  
-        print('train_classes', train_classes)
-        print('test_classes ', test_classes)  
+        if announce:
+            print('train_classes', train_classes)
+            print('test_classes ', test_classes)  
 
-        # 管理memory
+        # 管理memory (训练之前就已经把当前类采样取到记忆中去了)
         m = K // (i + CLASS_NUM_IN_BATCH)  #记忆中每类样本数
         if i != 0:
             icarl_reduce_exemplar_sets(m)

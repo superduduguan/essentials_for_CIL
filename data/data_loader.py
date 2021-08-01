@@ -15,7 +15,7 @@ def unpickle(file):
     return dict
 
 
-class ExemplarDataset(Dataset): #SAT: Memory
+class ExemplarDataset(Dataset):  
 
     def __init__(self, data, transform=None):
         labels = []
